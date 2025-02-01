@@ -1,0 +1,41 @@
+# Visual Studio archivos generados por el usuario
+.vscode/
+.vs/
+.idea/
+
+# Paquetes NuGet
+*.nupkg
+packages/
+
+# Archivos de compilación
+bin/
+obj/
+out/
+
+# Configuraciones de usuario
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Logs
+*.log
+
+# Configuración de IIS
+.localhistory/
+.history/
+
+# Archivos de depuración
+*.pdb
+*.csproj.user
+*.rsuser
+*.suo
+*.cache
+
+# Archivos temporales y de respaldo
+*_backup.*
+*~
+
+# Otros archivos innecesarios
+.DS_Store
+Thumbs.db
