@@ -2,15 +2,35 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Mvc;
 using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 using PaypalApi.Models;
+using PaypalApi.Services;
+using PaypalApi.Context;
+
 
 namespace PaypalApi.Controllers
+
 {
     public class WebHookController : Controller
     {
+        private readonly string _clientId;
+        private readonly string _clientSecret;
+        private readonly HttpClient _httpClient;
+
+        private readonly IPaymentProcessorService _paymentProcessor;
+        private readonly AppDbContext _dbContext;
+
+        public WebHookController(IConfiguration configuration, IHttpClientFactory httpClientFactory, IPaymentProcessorService paymentProcessor, AppDbContext dbContext)
+        {
+            _clientId = configuration["PayPal:clientId"] ?? throw new ArgumentNullException(nameof(_clientId));
+            _clientSecret = configuration["PayPal:clientSecret"] ?? throw new ArgumentNullException(nameof(_clientSecret));
+            _httpClient = httpClientFactory.CreateClient();
+            _paymentProcessor = paymentProcessor;
+            _dbContext = dbContext;
+        }
+
         [HttpPost("api/checkout/webhook")]
         [AllowAnonymous]
         public async Task<IActionResult> Post([FromQuery] string? start_date = null, [FromQuery] string? end_date = null)
@@ -27,52 +47,70 @@ namespace PaypalApi.Controllers
                     return BadRequest("Error: No se pudo obtener el token de acceso.");
                 }
 
-                // Get transaction history with proper date range
-                var startDateTime = start_date != null 
+                var startDateTime = start_date != null
                     ? DateTime.Parse(start_date)
-                    : DateTime.UtcNow.AddHours(-7); // Ajustamos para cubrir más horas del día
+                    : DateTime.UtcNow.AddHours(-7);
 
                 var endDateTime = end_date != null
                     ? DateTime.Parse(end_date).AddDays(1).AddSeconds(-1)
                     : DateTime.UtcNow;
 
                 var transactionData = await GetTransactionHistory(token.access_token, startDateTime, endDateTime);
-                
-                
-                // Return the transaction data
-                return Content(transactionData, "application/json");
+
+                // Procesar las transacciones usando el servicio
+                var payments = _paymentProcessor.ProcessPayPalTransactions(transactionData);
+
+                // Obtener las transacciones existentes en la base de datos
+                var existingTransactionIds = await _dbContext.PaymentsNotifications
+                    .Where(p => payments.Select(payment => payment.TransactionId).Contains(p.TransactionId))
+                    .Select(p => p.TransactionId)
+                    .ToListAsync();
+
+                // Filtrar las transacciones nuevas
+                var newPayments = payments.Where(payment => !existingTransactionIds.Contains(payment.TransactionId)).ToList();
+
+                // Insertar las nuevas transacciones
+                if (newPayments.Any())
+                {
+                    await _dbContext.PaymentsNotifications.AddRangeAsync(newPayments);
+                    await _dbContext.SaveChangesAsync();
+                }
+
+                // Obtener todos los pagos actualizados de la base de datos
+                var updatedPayments = await _dbContext.PaymentsNotifications
+                    .Where(p => payments.Select(x => x.TransactionId).Contains(p.TransactionId))
+                    .OrderByDescending(p => p.Date)
+                    .ThenByDescending(p => p.Time)
+                    .ToListAsync();
+
+                return Ok(updatedPayments);
             }
             catch (Exception ex)
             {
                 return StatusCode(500, $"Error interno: {ex.Message}");
             }
         }
-
         private async Task<TokenJson> GetPayPalAccessToken()
         {
-            using (HttpClient client = new HttpClient())
-            {
-                client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                client.DefaultRequestHeaders.AcceptLanguage.Add(new StringWithQualityHeaderValue("en_US"));
+            _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            _httpClient.DefaultRequestHeaders.AcceptLanguage.Add(new StringWithQualityHeaderValue("en_US"));
 
-                var clientId = "AcO_aCfae6xsgJfokhz1BwqKiueq8K0WNdj7KNL2BmL79lRyS79WvuEjKlFRoxRDEyOTXFfYTNjVMgDo";
-                var clientSecret = "EC280bix79Gd4QV_Cnb7cMsllVKQIjDBldt2aK7RCIRJLw7YRf2OGO6ZqR110Q0cMSCi_5WLnMQinvq7";
-                var bytes = Encoding.UTF8.GetBytes($"{clientId}:{clientSecret}");
+            var credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{_clientId}:{_clientSecret}"));
+            _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", credentials);
 
-                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(bytes));
+            var keyValues = new List<KeyValuePair<string, string>>()
+    {
+        new KeyValuePair<string, string>("grant_type", "client_credentials")
+    };
 
-                var keyValues = new List<KeyValuePair<string, string>>()
-                {
-                    new KeyValuePair<string, string>("grant_type", "client_credentials")
-                };
+            var responseMessage = await _httpClient.PostAsync("https://api-m.sandbox.paypal.com/v1/oauth2/token", new FormUrlEncodedContent(keyValues));
+            var response = await responseMessage.Content.ReadAsStringAsync();
 
-                var responseMessage = await client.PostAsync("https://api-m.sandbox.paypal.com/v1/oauth2/token", new FormUrlEncodedContent(keyValues));
-                var response = await responseMessage.Content.ReadAsStringAsync();
-                //Console.WriteLine("Token Response: " + response);
+            //Console.WriteLine("Token Response: " + response);
 
-                return JsonConvert.DeserializeObject<TokenJson>(response) ?? new TokenJson();
-            }
+            return JsonConvert.DeserializeObject<TokenJson>(response) ?? new TokenJson();
         }
+
 
         private async Task<string> GetTransactionHistory(string accessToken, DateTime startDate, DateTime endDate)
         {
