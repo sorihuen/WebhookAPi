@@ -21,9 +21,11 @@ namespace PaypalApi.Controllers
 
         private readonly IPaymentProcessorService _paymentProcessor;
         private readonly AppDbContext _dbContext;
+        private readonly TransactionLogger _logger;
 
         public WebHookController(IConfiguration configuration, IHttpClientFactory httpClientFactory, IPaymentProcessorService paymentProcessor, AppDbContext dbContext)
         {
+            _logger = new TransactionLogger();
             _clientId = configuration["PayPal:clientId"] ?? throw new ArgumentNullException(nameof(_clientId));
             _clientSecret = configuration["PayPal:clientSecret"] ?? throw new ArgumentNullException(nameof(_clientSecret));
             _httpClient = httpClientFactory.CreateClient();
@@ -40,12 +42,15 @@ namespace PaypalApi.Controllers
 
             try
             {
+                await _logger.LogTransaction("Iniciando proceso de webhook PayPal", true);
                 // Get PayPal access token
                 var token = await GetPayPalAccessToken();
                 if (string.IsNullOrEmpty(token?.access_token))
                 {
+                    await _logger.LogTransaction("Error al obtener token de acceso de PayPal", false);
                     return BadRequest("Error: No se pudo obtener el token de acceso.");
                 }
+                await _logger.LogTransaction("Token de acceso obtenido exitosamente", true);
 
                 var startDateTime = start_date != null
                     ? DateTime.Parse(start_date)
@@ -56,9 +61,11 @@ namespace PaypalApi.Controllers
                     : DateTime.UtcNow;
 
                 var transactionData = await GetTransactionHistory(token.access_token, startDateTime, endDateTime);
+                await _logger.LogTransaction($"Transacciones obtenidas para el período {startDateTime} - {endDateTime}", true);
 
                 // Procesar las transacciones usando el servicio
                 var payments = _paymentProcessor.ProcessPayPalTransactions(transactionData);
+                await _logger.LogTransaction($"Procesadas {payments.Count()} transacciones", true);
 
                 // Obtener las transacciones existentes en la base de datos
                 var existingTransactionIds = await _dbContext.PaymentsNotifications
@@ -74,6 +81,11 @@ namespace PaypalApi.Controllers
                 {
                     await _dbContext.PaymentsNotifications.AddRangeAsync(newPayments);
                     await _dbContext.SaveChangesAsync();
+                    await _logger.LogTransaction($"Guardadas {newPayments.Count} nuevas transacciones en la base de datos", true);
+                }
+                else
+                {
+                    await _logger.LogTransaction("No se encontraron nuevas transacciones para guardar", true);
                 }
 
                 // Obtener todos los pagos actualizados de la base de datos
@@ -82,7 +94,7 @@ namespace PaypalApi.Controllers
                     .OrderByDescending(p => p.Date)
                     .ThenByDescending(p => p.Time)
                     .ToListAsync();
-
+                await _logger.LogTransaction("Proceso completado exitosamente", true);
                 return Ok(updatedPayments);
             }
             catch (Exception ex)
