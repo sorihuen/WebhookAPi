@@ -140,8 +140,6 @@ namespace PaypalApi.Controllers
 
                 var responseMessage = await client.GetAsync(transactionHistoryUrl);
                 var response = await responseMessage.Content.ReadAsStringAsync();
-                //Console.WriteLine("Transaction API Response: " + response);
-
                 return response;
             }
         }

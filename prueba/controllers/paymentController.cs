@@ -48,14 +48,15 @@ namespace PaypalApi.Controllers
 
                 return status.ToUpper() switch
                 {
-                    "S" or "SUCCESS" or "SUCCESSFUL" => "S",
-                    "P" or "PENDING" => "P",
-                    "V" or "REVERSED" => "V",
-                    "F" or "FAILED" => "F",
+                    "S" or "SUCCESS" or "SUCCESSFUL" => "success",
+                    "P" or "PENDING" => "pending",
+                    "V" or "REVERSED" => "reversed",
+                    "F" or "FAILED" => "failed",
                     _ => null
                 };
             }
         }
+
 
         // Clase para la respuesta paginada
         public class PagedResponse<T>
@@ -82,11 +83,10 @@ namespace PaypalApi.Controllers
             try
             {
                 IQueryable<PaymentNotification> query = _dbContext.PaymentsNotifications;
-
-                // Aplicar filtros
+                // Aplicar filtro para el status solo si se proporcionó un valor
                 if (!string.IsNullOrWhiteSpace(queryParams.Status))
                 {
-                    query = query.Where(p => p.Status == queryParams.Status);
+                    query = query.Where(p => p.Status.Trim().ToLower() == queryParams.Status.Trim().ToLower());
                 }
 
                 if (queryParams.StartDate.HasValue)
@@ -99,7 +99,6 @@ namespace PaypalApi.Controllers
                     query = query.Where(p => p.Date <= queryParams.EndDate.Value.Date);
                 }
 
-                // Obtener total antes de la paginación
                 var totalRecords = await query.CountAsync();
 
                 if (totalRecords == 0)
@@ -110,12 +109,12 @@ namespace PaypalApi.Controllers
                     {
                         message = errorMessage,
                         validStatuses = new Dictionary<string, string>
-                        {
-                            { "S", "Success" },
-                            { "P", "Pending" },
-                            { "V", "Reversed" },
-                            { "F", "Failed" }
-                        },
+                {
+                    { "success", "Success" },
+                    { "pending", "Pending" },
+                    { "reversed", "Reversed" },
+                    { "failed", "Failed" }
+                },
                         appliedFilters = new
                         {
                             status = queryParams.Status,
@@ -156,6 +155,8 @@ namespace PaypalApi.Controllers
                 });
             }
         }
+
+
 
         [HttpGet("{id}")]
         public async Task<ActionResult<PaymentNotification>> GetPaymentById(int id)
