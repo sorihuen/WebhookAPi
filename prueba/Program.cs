@@ -1,11 +1,20 @@
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using PaypalApi.Context;
 using PaypalApi.Services;
 using Auth.Services;
 using System.Text.Json.Serialization;
+using Microsoft.IdentityModel.Tokens;
+using System.Text;
+
 
 var builder = WebApplication.CreateBuilder(args);
 
+
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
+builder.Services.AddControllers();
+builder.Services.AddHttpClient();
 
 builder.Services.AddCors(options =>
 {
@@ -23,17 +32,9 @@ builder.Services.AddRouting(options => options.LowercaseUrls = true);
 var connectionString = builder.Configuration.GetConnectionString("Connection");
 builder.Services.AddDbContext<AppDbContext>(options => options.UseSqlServer(connectionString));
 
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
-builder.Services.AddControllers();
-builder.Services.AddHttpClient();
 
-// En Program.cs
 builder.Services.AddScoped<IPaymentProcessorService, PaymentProcessorService>();
-// En Program.cs
 builder.Services.AddScoped<IAuthService, AuthService>();
-
-
 
 // Configuración del logging
 builder.Logging
@@ -47,6 +48,32 @@ builder.Services.AddControllers()
         options.JsonSerializerOptions.NumberHandling = JsonNumberHandling.AllowReadingFromString;
         options.JsonSerializerOptions.WriteIndented = true;
     });
+
+// Configuración del JWT
+var jwtKey = builder.Configuration["Jwt:Key"] ??
+throw new InvalidOperationException("Jwt:Key no está configurado en appsettings.json");
+
+builder.Services.AddAuthentication(options =>
+{
+    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+})
+.AddJwtBearer(options =>
+{
+    options.TokenValidationParameters = new TokenValidationParameters
+    {
+        ValidateIssuer = true,
+        ValidateAudience = true,
+        ValidateLifetime = true,
+        ValidateIssuerSigningKey = true,
+        ValidIssuer = builder.Configuration["Jwt:Issuer"] ??
+            throw new InvalidOperationException("Jwt:Issuer no está configurado"),
+        ValidAudience = builder.Configuration["Jwt:Audience"] ??
+            throw new InvalidOperationException("Jwt:Audience no está configurado"),
+        IssuerSigningKey = new SymmetricSecurityKey(
+            Encoding.UTF8.GetBytes(jwtKey))
+    };
+});
 
 
 var app = builder.Build();
@@ -71,6 +98,8 @@ app.Use(async (context, next) =>
 app.UseHttpsRedirection();
 app.UseCors();
 app.UseRouting();
+app.UseAuthentication(); 
+app.UseAuthorization();
 app.MapControllers();
 
 app.Run();

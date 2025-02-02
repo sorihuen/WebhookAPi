@@ -34,7 +34,7 @@ namespace PaypalApi.Controllers
         }
 
         [HttpPost("api/checkout/webhook")]
-        [AllowAnonymous]
+        [Authorize]
         public async Task<IActionResult> Post([FromQuery] string? start_date = null, [FromQuery] string? end_date = null)
         {
             const SecurityProtocolType tls13 = (SecurityProtocolType)12288;
