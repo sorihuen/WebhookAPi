@@ -13,9 +13,10 @@ Este proyecto es un webhook desarrollado en ASP.NET 8.0 para recibir y procesar 
 ## ⚙️ Requisitos
 Antes de ejecutar este proyecto, asegúrate de tener instalados los siguientes requisitos:
 
--✅ .NET 8.0
--✅ SQL Server (para almacenar transacciones)
--✅ Cuenta de desarrollador de PayPal (para configurar credenciales de PayPal)
+- ✅ **.NET 8.0**  
+- ✅ **SQL Server** (para almacenar transacciones)  
+- ✅ **Cuenta de desarrollador de PayPal** (para configurar credenciales de PayPal)  
+
 
 
 ## 🚀 Instalación y Ejecución
