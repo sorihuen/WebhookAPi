@@ -15,6 +15,7 @@ namespace PaypalApi.Models
         public required string TransactionId { get; set; }
 
         public required string Status { get; set; }
+
         [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
         [JsonPropertyName("amount")]
         [Column(TypeName = "decimal(18,2)")]
